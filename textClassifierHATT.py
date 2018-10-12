@@ -12,20 +12,26 @@ import sys
 import os
 
 #os.environ['KERAS_BACKEND']='theano'
-
 from keras.preprocessing.text import Tokenizer, text_to_word_sequence, one_hot
 from keras.preprocessing.sequence import pad_sequences
 from keras.utils.np_utils import to_categorical
 
 from keras.layers import Embedding
 from keras.layers import Dense, Input, Flatten
-from keras.layers import Conv1D, MaxPooling1D, Embedding, Merge, Dropout, LSTM, GRU, Bidirectional, TimeDistributed
+from keras.layers import Conv1D, MaxPooling1D, Embedding, Merge, Dropout, LSTM, GRU, Bidirectional, TimeDistributed,Concatenate
 from keras.models import Model
 from keras.utils import to_categorical
-
+import keras.backend.tensorflow_backend as KTF
 from keras import backend as K
 from keras.engine.topology import Layer, InputSpec
 from keras import initializers
+import tensorflow as tf
+# set run environment
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+config = tf.ConfigProto()
+config.gpu_options.allow_growth=True
+sess = tf.Session(config=config)
+KTF.set_session(sess)
 
 MAX_SENT_LENGTH = 100#每句最多单词数
 MAX_SENTS = 15#每个code fragments最多句数
@@ -39,9 +45,9 @@ def clean_str(string):
     Tokenization/string cleaning for dataset
     Every dataset is lower cased except
     """
-    string = re.sub(r"\\", "", string)    
-    string = re.sub(r"\'", "", string)    
-    string = re.sub(r"\"", "", string)    
+    string = re.sub(r"\\", "", string)
+    string = re.sub(r"\'", "", string)
+    string = re.sub(r"\"", "", string)
     return string.strip().lower()
 
 from nltk import tokenize
@@ -50,7 +56,7 @@ codes = []
 comments = []
 code_texts = []
 
-input_file = '/home/sihan/桌面/textClassifier/comment_datasets/test.json'
+input_file = 'comment_datasets/test.json'
 with open (input_file,'r') as f:
     print ('load data...')
     unicode_data = json.load(f) # read files
@@ -61,7 +67,7 @@ with open (input_file,'r') as f:
         m_code = method['code']
         if len(m_comment) == 0 or len(m_code) == 0:
             continue
-        # preprocess     
+        # preprocess
         comment = BeautifulSoup(m_comment)
         comment = clean_str(comment.get_text().encode('ascii','ignore'))
         comment = "<S> " + comment + " <E>"
@@ -92,7 +98,7 @@ for i, sentences in enumerate(codes):
             for _, word in enumerate(wordTokens):
                 if k<MAX_SENT_LENGTH and tokenizer.word_index[word]<MAX_CODE_TOKENS: #每句话的前MAX_SENT_LENGTH个单词
                     data[i,j,k] = tokenizer.word_index[word]
-                    k=k+1                    
+                    k=k+1
 print('Total %s unique tokens in code.' % len(tokenizer.word_index))
 num_encoder_tokens = len(tokenizer.word_index) + 1 # 默认为0
 
@@ -110,33 +116,33 @@ for i, com in enumerate(comments):
     for _, word in enumerate(wordTokens):
         if j<MAX_COM_WORDS and tokenizer2.word_index[word]<MAX_ALL_WORDS:
             com_data[i,j] = tokenizer2.word_index[word]
-            j=j+1                    
+            j=j+1
 num_decoder_tokens = len(tokenizer2.word_index) + 1 #默认为0
 
 print('Shape of code tensor:', data.shape)
 print('Shape of comment tensor:', com_data.shape)
 #one_hot
-com_one_hot = to_categorical(com_data)
+#com_one_hot = to_categorical(com_data)
 
 #shuffle
 indices = np.arange(data.shape[0])
 np.random.shuffle(indices)
 data = data[indices]
 com_data = com_data[indices]
-com_one_hot = com_one_hot[indices]
+#com_one_hot = com_one_hot[indices]
 
 nb_validation_samples = int(VALIDATION_SPLIT * data.shape[0])
 
 # decoder_target_data(one-hot), encoder_input_data(int)
 encoder_input_data = data[:-nb_validation_samples]
-decoder_target_data = com_one_hot[:-nb_validation_samples]
+#decoder_target_data = com_one_hot[:-nb_validation_samples]
 encoder_input_data2 = data[-nb_validation_samples:]
-decoder_target_data2 = com_one_hot[-nb_validation_samples:]
+#decoder_target_data2 = com_one_hot[-nb_validation_samples:]
 
 # decoder_input_data(int, decoder_target_data+1)
 decoder_inputs = np.zeros((len(com_data),MAX_COM_WORDS), dtype='int32')
 for i,com in enumerate(decoder_inputs):
-    for j,token in enumerate(com):
+    for j in range(0,len(com)-1):
         decoder_inputs[i,j+1]=com_data[i,j]
 decoder_input_data = com_data[:-nb_validation_samples]
 decoder_input_data2 = com_data[-nb_validation_samples:]
@@ -153,23 +159,29 @@ sentEncoder = Model(sentence_input, l_lstm)
 
 review_input = Input(shape=(MAX_SENTS,MAX_SENT_LENGTH), dtype='int32')
 review_encoder = TimeDistributed(sentEncoder)(review_input)
-l_lstm_sent, state_h, state_c = Bidirectional(LSTM(100,return_state=True))(review_encoder) 
+l_lstm_sent,forward_h, forward_c, backward_h, backward_c = Bidirectional(LSTM(100,return_state=True))(review_encoder)
+state_h = Concatenate()([forward_h, backward_h])
+state_c = Concatenate()([forward_c, backward_c])
+
 encoder_states = [state_h, state_c]
 
 # add decoder here
 # decoder_inputs为decoder_target的错一位，从而teacher force
-decoder_inputs = Input(shape=(None,)) 
-x = Embedding(num_decoder_tokens, EMBEDDING_DIM)(decoder_inputs) 
-x = LSTM(100, return_sequences=True)(x, initial_state=encoder_states) 
+decoder_inputs = Input(shape=(None,))
+x = Embedding(num_decoder_tokens, EMBEDDING_DIM)(decoder_inputs)
+x = LSTM(200, return_sequences=True)(x, initial_state=encoder_states)
 decoder_outputs = Dense(num_decoder_tokens, activation='softmax')(x)
 
 model = Model([review_input, decoder_inputs], decoder_outputs)
-model.compile(optimizer='rmsprop', loss='categorical_crossentropy')
+model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy')
 # Note that `decoder_target_data` needs to be one-hot encoded,
 # rather than sequences of integers like `decoder_input_data`!
 # decoder_target_data : one-hot com_data
 #decoder_input_data: com_data + 1 (int)
 print("model fitting - Hierachical LSTM")
+#model.fit([encoder_input_data, decoder_input_data], decoder_target_data, batch_size=50, epochs=20, validation_split=0.2)
+decoder_target_data = np.expand_dims(com_data,-1)
+decoder_target_data = decoder_target_data[:-nb_validation_samples]
 model.fit([encoder_input_data, decoder_input_data], decoder_target_data, batch_size=50, epochs=20, validation_split=0.2)
 
 
@@ -184,7 +196,7 @@ for word, i in word_index.items():
     if embedding_vector is not None:
         # words not found in embedding index will be all-zeros.
         embedding_matrix[i] = embedding_vector
-        
+
 embedding_layer = Embedding(len(word_index) + 1,
                             EMBEDDING_DIM,
                             weights=[embedding_matrix],
@@ -207,10 +219,10 @@ class AttLayer(Layer):
 
     def call(self, x, mask=None):
         eij = K.tanh(K.dot(x, self.W))
-        
+
         ai = K.exp(eij)
         weights = ai/K.sum(ai, axis=1).dimshuffle(0,'x')
-        
+
         weighted_input = x*weights.dimshuffle(0,1,'x')
         return weighted_input.sum(axis=1)
 
