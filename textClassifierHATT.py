@@ -73,7 +73,7 @@ with open (input_file,'r') as f:
             sentence = BeautifulSoup(sentence)
             sentence = clean_str(sentence.get_text().encode('ascii','ignore'))
             sents.append(sentence)
-            code += sentence
+            code = code + sentence + ' '
         code_texts.append(code)
         codes.append(sents)
 print('Total %s code fragments' % len(code_texts))
@@ -93,7 +93,7 @@ for i, sentences in enumerate(codes):
                 if k<MAX_SENT_LENGTH and tokenizer.word_index[word]<MAX_CODE_TOKENS: #每句话的前MAX_SENT_LENGTH个单词
                     data[i,j,k] = tokenizer.word_index[word]
                     k=k+1                    
-print('Total %s unique tokens.' % len(tokenizer.word_index))
+print('Total %s unique tokens in code.' % len(tokenizer.word_index))
 num_encoder_tokens = len(tokenizer.word_index) + 1 # 默认为0
 
 # target to numbers
@@ -101,7 +101,7 @@ all_texts = code_texts + comments
 print('Total %s comment and code' % len(all_texts))
 tokenizer2 = Tokenizer(num_words=MAX_ALL_WORDS)
 tokenizer2.fit_on_texts(all_texts)
-print('Total %s words in comment and code.' % len(tokenizer2.word_index))
+print('Total %s unique tokens in comment and code.' % len(tokenizer2.word_index))
 
 com_data = np.zeros((len(comments), MAX_COM_WORDS), dtype='int32')
 for i, com in enumerate(comments):
