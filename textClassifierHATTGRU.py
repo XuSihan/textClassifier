@@ -190,23 +190,21 @@ embedding_layer = Embedding(num_encoder_tokens,
 sentence_input = Input(shape=(MAX_SENT_LENGTH,), dtype='int32')
 embedded_sequences = embedding_layer(sentence_input)
 l_lstm = Bidirectional(GRU(100, return_sequences=True))(embedded_sequences)
-l_dense = TimeDistributed(Dense(200))(l_lstm)
-l_att = AttLayer()(l_dense)
+l_att = AttLayer(100)(l_lstm)
 sentEncoder = Model(sentence_input, l_att)
 
 review_input = Input(shape=(MAX_SENTS,MAX_SENT_LENGTH), dtype='int32')
 review_encoder = TimeDistributed(sentEncoder)(review_input)
 l_lstm_sent,forward_h, backward_h = Bidirectional(GRU(100,return_state=True, return_sequences=True))(review_encoder)
 #state_h = Concatenate()([forward_h, backward_h])
-l_dense_sent = TimeDistributed(Dense(200))(l_lstm_sent)
-l_att_sent = AttLayer()(l_dense_sent)
-encoder_states = Dense(200)(l_att_sent)
+l_att_sent = AttLayer(100)(l_lstm_sent)
+encoder_states = l_att_sent
 
 # add decoder here
 decoder_inputs = Input(shape=(None,))
 embedding_layer2 = Embedding(num_decoder_tokens, EMBEDDING_DIM)
 x = embedding_layer2(decoder_inputs)
-decoder_lstm = LSTM(200, return_sequences=True)
+decoder_lstm = GRU(100, return_sequences=True)
 x = decoder_lstm(x, initial_state=encoder_states)
 decoder_dense = Dense(num_decoder_tokens, activation='softmax')
 decoder_outputs = decoder_dense(x)
@@ -220,9 +218,8 @@ model.fit([encoder_input_data, decoder_input_data], decoder_target_data, validat
 # inference
 encoder_model = Model(review_input, encoder_states) 
 
-decoder_state_input_h = Input(shape=(200,)) 
-decoder_state_input_c = Input(shape=(200,)) 
-decoder_states = [decoder_state_input_h, decoder_state_input_c] 
+decoder_state_h = Input(shape=(100,)) 
+decoder_states = decoder_state_h 
 
 y = embedding_layer2(decoder_inputs)
 y = decoder_lstm(y, initial_state=decoder_states)
