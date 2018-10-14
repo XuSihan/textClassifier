@@ -99,7 +99,7 @@ for i, sentences in enumerate(codes):
                 if k<MAX_SENT_LENGTH and tokenizer.word_index[word]<MAX_CODE_TOKENS: #每句话的前MAX_SENT_LENGTH个单词
                     data[i,j,k] = tokenizer.word_index[word]
                     k=k+1
-print('Total %s unique tokens in code.' % len(tokenizer.word_index))
+print('Total %s unique tokens in code.' % len(tokenizer.word_index)+1)
 num_encoder_tokens = len(tokenizer.word_index) + 1 # 默认为0
 
 # target to numbers
@@ -143,13 +143,15 @@ decoder_input = np.zeros((len(com_data),MAX_COM_WORDS), dtype='int32')
 for i,com in enumerate(decoder_input):
     for j in range(0,len(com)-1):
         decoder_input[i,j+1]=com_data[i,j]
+print 'decoder_input[0]: ' + decoder_input[0]
+print 'com_data[0]: ' + com_data[0]
 decoder_input_data = decoder_input[:-nb_validation_samples]
 decoder_input_data2 = decoder_input[-nb_validation_samples:]
 
 # decoder_target_data(int sequence)
-decoder_target_data = np.expand_dims(com_data,-1)
-decoder_target_data = decoder_target_data[:-nb_validation_samples]
-decoder_target_data2 = decoder_target_data[-nb_validation_samples:]
+decoder_target = np.expand_dims(com_data,-1)
+decoder_target_data = decoder_target[:-nb_validation_samples]
+decoder_target_data2 = decoder_target[-nb_validation_samples:]
 
 embedding_layer = Embedding(num_encoder_tokens,
                             EMBEDDING_DIM,
@@ -182,7 +184,7 @@ model = Model([review_input, decoder_inputs], decoder_outputs)
 model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy', metrics=['acc'])
 print("model fitting - Hierachical LSTM")
 #model.fit([encoder_input_data, decoder_input_data], decoder_target_data, batch_size=50, epochs=20, validation_split=0.2)
-model.fit([encoder_input_data, decoder_input_data], decoder_target_data, validation_data=([encoder_input_data2, decoder_input_data2], decoder_target_data2),batch_size=50, epochs=20, validation_split=0.2)
+model.fit([encoder_input_data, decoder_input_data], decoder_target_data, validation_data=([encoder_input_data2, decoder_input_data2], decoder_target_data2),batch_size=50, epochs=10, validation_split=0.2)
 
 # inference
 encoder_model = Model(review_input, encoder_states) 
@@ -228,7 +230,7 @@ def decode_sequence(input_seq):
     return decoded_sentence
 
 for i, input_seq in enumerate(encoder_input_data2):
-    input_now = np.zeros((1,MAX_SENT_LENGTH,MAX_CODE_TOKENS))
+    input_now = np.zeros((1,MAX_SENTS, MAX_SENT_LENGTH))
     input_now[0] = input_seq
     print 'Input: ' + input_now[0]
     decoded_sentence = decode_sequence(input_now)
