@@ -99,7 +99,7 @@ for i, sentences in enumerate(codes):
                 if k<MAX_SENT_LENGTH and tokenizer.word_index[word]<MAX_CODE_TOKENS: #每句话的前MAX_SENT_LENGTH个单词
                     data[i,j,k] = tokenizer.word_index[word]
                     k=k+1
-print('Total %s unique tokens in code.' % len(tokenizer.word_index)+1)
+print('Total %s unique tokens in code.' % (len(tokenizer.word_index)+1))
 num_encoder_tokens = len(tokenizer.word_index) + 1 # 默认为0
 
 # target to numbers
