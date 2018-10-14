@@ -185,6 +185,7 @@ class AttLayer(Layer):
 embedding_layer = Embedding(num_encoder_tokens,
                             EMBEDDING_DIM,
                             input_length=MAX_SENT_LENGTH,
+                            mask_zero=True,
                             trainable=True)
 
 sentence_input = Input(shape=(MAX_SENT_LENGTH,), dtype='int32')
