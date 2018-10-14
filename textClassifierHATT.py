@@ -140,16 +140,19 @@ encoder_input_data2 = data[-nb_validation_samples:]
 # decoder_inputs为decoder_target的错一位，从而teacher force
 # decoder_input_data(int sequence, decoder_target_data + 1 step)
 decoder_input = np.zeros((len(com_data),MAX_COM_WORDS), dtype='int32')
-for i,com in enumerate(decoder_input):
-    for j in range(0,len(com)-1):
-        decoder_input[i,j+1]=com_data[i,j]
+decoder_target = np.zeros((len(com_data),MAX_COM_WORDS), dtype='int32')
+for i,com in enumerate(com_data):
+    for j in range(0,len(com)):
+        decoder_input[i][j] = com_data[i][j]
+        if j > 0:
+            decoder_target[i,j-1]=com_data[i,j]
 print 'decoder_input[0]: ' , decoder_input[0]
 print 'com_data[0]: ' , com_data[0]
 decoder_input_data = decoder_input[:-nb_validation_samples]
 decoder_input_data2 = decoder_input[-nb_validation_samples:]
 
 # decoder_target_data(int sequence)
-decoder_target = np.expand_dims(com_data,-1)
+decoder_target = np.expand_dims(decoder_target,-1)
 decoder_target_data = decoder_target[:-nb_validation_samples]
 decoder_target_data2 = decoder_target[-nb_validation_samples:]
 
@@ -217,6 +220,7 @@ def decode_sequence(input_seq):
     while not stop_condition: 
         output_tokens = decoder_model.predict([target_seq] + states_value) 
         print('output_tokens',output_tokens)
+        print('output_tokens.shape',output_tokens.shape)
         sampled_token_index = np.argmax(output_tokens[0, -1, :]) 
         decoded_sentence += index2token[sampled_token_index] + ' '
         k += 1
