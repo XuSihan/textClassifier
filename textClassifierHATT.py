@@ -129,23 +129,27 @@ indices = np.arange(data.shape[0])
 np.random.shuffle(indices)
 data = data[indices]
 com_data = com_data[indices]
-#com_one_hot = com_one_hot[indices]
 
+# split
 nb_validation_samples = int(VALIDATION_SPLIT * data.shape[0])
 
-# decoder_target_data(one-hot), encoder_input_data(int)
+# encoder_input_data(int sequence)
 encoder_input_data = data[:-nb_validation_samples]
-#decoder_target_data = com_one_hot[:-nb_validation_samples]
 encoder_input_data2 = data[-nb_validation_samples:]
-#decoder_target_data2 = com_one_hot[-nb_validation_samples:]
 
-# decoder_input_data(int, decoder_target_data+1)
-decoder_inputs = np.zeros((len(com_data),MAX_COM_WORDS), dtype='int32')
-for i,com in enumerate(decoder_inputs):
+# decoder_inputs为decoder_target的错一位，从而teacher force
+# decoder_input_data(int sequence, decoder_target_data + 1 step)
+decoder_input = np.zeros((len(com_data),MAX_COM_WORDS), dtype='int32')
+for i,com in enumerate(decoder_input):
     for j in range(0,len(com)-1):
-        decoder_inputs[i,j+1]=com_data[i,j]
-decoder_input_data = com_data[:-nb_validation_samples]
-decoder_input_data2 = com_data[-nb_validation_samples:]
+        decoder_input[i,j+1]=com_data[i,j]
+decoder_input_data = decoder_input[:-nb_validation_samples]
+decoder_input_data2 = decoder_input[-nb_validation_samples:]
+
+# decoder_target_data(int sequence)
+decoder_target_data = np.expand_dims(com_data,-1)
+decoder_target_data = decoder_target_data[:-nb_validation_samples]
+decoder_target_data2 = decoder_target_data[-nb_validation_samples:]
 
 embedding_layer = Embedding(num_encoder_tokens,
                             EMBEDDING_DIM,
@@ -166,27 +170,69 @@ state_c = Concatenate()([forward_c, backward_c])
 encoder_states = [state_h, state_c]
 
 # add decoder here
-# decoder_inputs为decoder_target的错一位，从而teacher force
 decoder_inputs = Input(shape=(None,))
-x = Embedding(num_decoder_tokens, EMBEDDING_DIM)(decoder_inputs)
-x = LSTM(200, return_sequences=True)(x, initial_state=encoder_states)
-decoder_outputs = Dense(num_decoder_tokens, activation='softmax')(x)
+embedding_layer2 = Embedding(num_decoder_tokens, EMBEDDING_DIM)
+x = embedding_layer2(decoder_inputs)
+decoder_lstm = LSTM(200, return_sequences=True)
+x = decoder_lstm(x, initial_state=encoder_states)
+decoder_dense = Dense(num_decoder_tokens, activation='softmax')
+decoder_outputs = decoder_dense(x)
 
 model = Model([review_input, decoder_inputs], decoder_outputs)
-model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy')
-# Note that `decoder_target_data` needs to be one-hot encoded,
-# rather than sequences of integers like `decoder_input_data`!
-# decoder_target_data : one-hot com_data
-#decoder_input_data: com_data + 1 (int)
+model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy', metrics=['acc'])
 print("model fitting - Hierachical LSTM")
 #model.fit([encoder_input_data, decoder_input_data], decoder_target_data, batch_size=50, epochs=20, validation_split=0.2)
-decoder_target_data = np.expand_dims(com_data,-1)
-decoder_target_data = decoder_target_data[:-nb_validation_samples]
-model.fit([encoder_input_data, decoder_input_data], decoder_target_data, batch_size=50, epochs=20, validation_split=0.2)
+model.fit([encoder_input_data, decoder_input_data], decoder_target_data, validation_data=([encoder_input_data2, decoder_input_data2], decoder_target_data2),batch_size=50, epochs=20, validation_split=0.2)
+
+# inference
+encoder_model = Model(review_input, encoder_states) 
+
+decoder_state_input_h = Input(shape=(200,)) 
+decoder_state_input_c = Input(shape=(200,)) 
+decoder_states = [decoder_state_input_h, decoder_state_input_c] 
+
+y = embedding_layer2(decoder_inputs)
+y = decoder_lstm(y, initial_state=decoder_states)
+decoder_outputs = decoder_dense(y)
+decoder_model = Model( [decoder_inputs] + decoder_states, decoder_outputs)
+
+index2token = {}
+for i, token in enumerate(tokenizer2.word_index):
+    index2token[tokenizer2.word_index[token]] = token
 
 
+def decode_sequence(input_seq): 
+    # Encode the input as state vectors. 
+    states_value = encoder_model.predict(input_seq) 
+    # Generate empty target sequence of length 1. 
+    target_seq = np.zeros((1,MAX_COM_WORDS)) 
+    # Populate the first character of target sequence with the start character. 
+    target_seq[0, 0] = tokenizer2.word_index['<S>']
+    # Sampling loop for a batch of sequences # (to simplify, here we assume a batch of size 1). 
+    stop_condition = False 
+    decoded_sentence = '' 
+    k = 0
+    while not stop_condition: 
+        output_tokens = decoder_model.predict([target_seq] + states_value) 
+        print('output_tokens',output_tokens)
+        sampled_token_index = np.argmax(output_tokens[0, -1, :]) 
+        decoded_sentence += index2token[sampled_token_index] + ' '
+        k += 1
+        # Exit condition: either hit max length 
+        # or find stop character. 
+        if (sampled_token_index == tokenizer2.word_index['<E>'] or k >= MAX_COM_WORDS): 
+            stop_condition = True 
 
+        # Add the sampled token to the sequence
+        target_seq[0,k] = sampled_token_index
+    return decoded_sentence
 
+for i, input_seq in enumerate(encoder_input_data2):
+    input_now = np.zeros((1,MAX_SENT_LENGTH,MAX_CODE_TOKENS))
+    input_now[0] = input_seq
+    print 'Input: ' + input_now[0]
+    decoded_sentence = decode_sequence(input_now)
+    print 'Output: ' + decoded_sentence
 '''
 
 # building Hierachical Attention network
