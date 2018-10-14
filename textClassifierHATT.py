@@ -143,8 +143,8 @@ decoder_input = np.zeros((len(com_data),MAX_COM_WORDS), dtype='int32')
 for i,com in enumerate(decoder_input):
     for j in range(0,len(com)-1):
         decoder_input[i,j+1]=com_data[i,j]
-print 'decoder_input[0]: ' + decoder_input[0]
-print 'com_data[0]: ' + com_data[0]
+print 'decoder_input[0]: ' , decoder_input[0]
+print 'com_data[0]: ' , com_data[0]
 decoder_input_data = decoder_input[:-nb_validation_samples]
 decoder_input_data2 = decoder_input[-nb_validation_samples:]
 
@@ -199,7 +199,7 @@ decoder_outputs = decoder_dense(y)
 decoder_model = Model( [decoder_inputs] + decoder_states, decoder_outputs)
 
 index2token = {}
-for i, token in enumerate(tokenizer2.word_index):
+for token in tokenizer2.word_index:
     index2token[tokenizer2.word_index[token]] = token
 
 
