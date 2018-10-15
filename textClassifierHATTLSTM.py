@@ -146,8 +146,8 @@ for i,com in enumerate(com_data):
         decoder_input[i][j] = com_data[i][j]
         if j > 0:
             decoder_target[i,j-1]=com_data[i,j]
-print 'decoder_input[0]: ' , decoder_input[0]
-print 'com_data[0]: ' , com_data[0]
+print('decoder_input[0]: ' , decoder_input[0])
+print('decoder_target[0]: ' , decoder_target[0])
 decoder_input_data = decoder_input[:-nb_validation_samples]
 decoder_input_data2 = decoder_input[-nb_validation_samples:]
 
@@ -187,7 +187,7 @@ model = Model([review_input, decoder_inputs], decoder_outputs)
 model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy', metrics=['acc'])
 print("model fitting - Hierachical LSTM")
 #model.fit([encoder_input_data, decoder_input_data], decoder_target_data, batch_size=50, epochs=20, validation_split=0.2)
-model.fit([encoder_input_data, decoder_input_data], decoder_target_data, validation_data=([encoder_input_data2, decoder_input_data2], decoder_target_data2),batch_size=50, epochs=10, validation_split=0.2)
+model.fit([encoder_input_data, decoder_input_data], decoder_target_data, validation_data=([encoder_input_data2, decoder_input_data2], decoder_target_data2),batch_size=50, epochs=1, validation_split=0.2)
 
 # inference
 encoder_model = Model(review_input, encoder_states) 
@@ -236,9 +236,9 @@ def decode_sequence(input_seq):
 for i, input_seq in enumerate(encoder_input_data2):
     input_now = np.zeros((1,MAX_SENTS, MAX_SENT_LENGTH))
     input_now[0] = input_seq
-    print 'Input: ' + input_now[0]
+    print('Input: ', input_now[0])
     decoded_sentence = decode_sequence(input_now)
-    print 'Output: ' + decoded_sentence
+    print('Output: ', decoded_sentence)
 '''
 
 # building Hierachical Attention network
