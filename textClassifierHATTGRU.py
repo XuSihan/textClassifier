@@ -1,4 +1,5 @@
 #! encoding=utf-8
+print 'running textclassifierHATTGRU.py'
 import numpy as np
 import pandas as pd
 import cPickle
@@ -156,31 +157,48 @@ decoder_target = np.expand_dims(decoder_target,-1)
 decoder_target_data = decoder_target[:-nb_validation_samples]
 decoder_target_data2 = decoder_target[-nb_validation_samples:]
 
+
 class AttLayer(Layer):
-    def __init__(self, **kwargs):
+    def __init__(self, attention_dim):
         self.init = initializers.get('normal')
-        #self.input_spec = [InputSpec(ndim=3)]
-        super(AttLayer, self).__init__(**kwargs)
+        self.supports_masking = True
+        self.attention_dim = attention_dim
+        super(AttLayer, self).__init__()
 
     def build(self, input_shape):
-        assert len(input_shape)==3
-        #self.W = self.init((input_shape[-1],1))
-        self.W = self.init((input_shape[-1],))
-        #self.input_spec = [InputSpec(shape=input_shape)]
-        self.trainable_weights = [self.W]
-        super(AttLayer, self).build(input_shape)  # be sure you call this somewhere!
+        assert len(input_shape) == 3
+        self.W = K.variable(self.init((input_shape[-1], self.attention_dim)))
+        self.b = K.variable(self.init((self.attention_dim, )))
+        self.u = K.variable(self.init((self.attention_dim, 1)))
+        self.trainable_weights = [self.W, self.b, self.u]
+        super(AttLayer, self).build(input_shape)
+
+    def compute_mask(self, inputs, mask=None):
+        return mask
 
     def call(self, x, mask=None):
-        eij = K.tanh(K.dot(x, self.W))
+        # size of x :[batch_size, sel_len, attention_dim]
+        # size of u :[batch_size, attention_dim]
+        # uit = tanh(xW+b)
+        uit = K.tanh(K.bias_add(K.dot(x, self.W), self.b))
+        ait = K.dot(uit, self.u)
+        ait = K.squeeze(ait, -1)
 
-        ai = K.exp(eij)
-        weights = ai/K.sum(ai, axis=1).dimshuffle(0,'x')
+        ait = K.exp(ait)
 
-        weighted_input = x*weights.dimshuffle(0,1,'x')
-        return weighted_input.sum(axis=1)
+        if mask is not None:
+            # Cast the mask to floatX to avoid float64 upcasting in theano
+            ait *= K.cast(mask, K.floatx())
+        ait /= K.cast(K.sum(ait, axis=1, keepdims=True) + K.epsilon(), K.floatx())
+        ait = K.expand_dims(ait)
+        weighted_input = x * ait
+        output = K.sum(weighted_input, axis=1)
 
-    def get_output_shape_for(self, input_shape):
+        return output
+
+    def compute_output_shape(self, input_shape):
         return (input_shape[0], input_shape[-1])
+
 
 embedding_layer = Embedding(num_encoder_tokens,
                             EMBEDDING_DIM,
@@ -191,14 +209,16 @@ embedding_layer = Embedding(num_encoder_tokens,
 sentence_input = Input(shape=(MAX_SENT_LENGTH,), dtype='int32')
 embedded_sequences = embedding_layer(sentence_input)
 l_lstm = Bidirectional(GRU(100, return_sequences=True))(embedded_sequences)
-l_att = AttLayer(100)(l_lstm)
+att1 = AttLayer(100)
+l_att = att1(l_lstm)
 sentEncoder = Model(sentence_input, l_att)
 
 review_input = Input(shape=(MAX_SENTS,MAX_SENT_LENGTH), dtype='int32')
 review_encoder = TimeDistributed(sentEncoder)(review_input)
 l_lstm_sent,forward_h, backward_h = Bidirectional(GRU(100,return_state=True, return_sequences=True))(review_encoder)
 #state_h = Concatenate()([forward_h, backward_h])
-l_att_sent = AttLayer(100)(l_lstm_sent)
+att2 = AttLayer(100)
+l_att_sent = att2(l_lstm_sent)
 encoder_states = l_att_sent
 
 # add decoder here
@@ -217,10 +237,10 @@ print("model fitting - Hierachical LSTM")
 model.fit([encoder_input_data, decoder_input_data], decoder_target_data, validation_data=([encoder_input_data2, decoder_input_data2], decoder_target_data2),batch_size=50, epochs=10, validation_split=0.2)
 
 # inference
-encoder_model = Model(review_input, encoder_states) 
+encoder_model = Model(review_input, encoder_states)
 
-decoder_state_h = Input(shape=(100,)) 
-decoder_states = decoder_state_h 
+decoder_state_h = Input(shape=(100,))
+decoder_states = decoder_state_h
 
 y = embedding_layer2(decoder_inputs)
 y = decoder_lstm(y, initial_state=decoder_states)
@@ -232,28 +252,28 @@ for token in tokenizer2.word_index:
     index2token[tokenizer2.word_index[token]] = token
 
 
-def decode_sequence(input_seq): 
-    # Encode the input as state vectors. 
-    states_value = encoder_model.predict(input_seq) 
-    # Generate empty target sequence of length 1. 
-    target_seq = np.zeros((1,MAX_COM_WORDS)) 
-    # Populate the first character of target sequence with the start character. 
+def decode_sequence(input_seq):
+    # Encode the input as state vectors.
+    states_value = encoder_model.predict(input_seq)
+    # Generate empty target sequence of length 1.
+    target_seq = np.zeros((1,MAX_COM_WORDS))
+    # Populate the first character of target sequence with the start character.
     target_seq[0, 0] = tokenizer2.word_index['<S>']
-    # Sampling loop for a batch of sequences # (to simplify, here we assume a batch of size 1). 
-    stop_condition = False 
-    decoded_sentence = '' 
+    # Sampling loop for a batch of sequences # (to simplify, here we assume a batch of size 1).
+    stop_condition = False
+    decoded_sentence = ''
     k = 0
-    while not stop_condition: 
-        output_tokens = decoder_model.predict([target_seq] + states_value) 
+    while not stop_condition:
+        output_tokens = decoder_model.predict([target_seq] + states_value)
         print('output_tokens',output_tokens)
         print('output_tokens.shape',output_tokens.shape)
-        sampled_token_index = np.argmax(output_tokens[0, -1, :]) 
+        sampled_token_index = np.argmax(output_tokens[0, -1, :])
         decoded_sentence += index2token[sampled_token_index] + ' '
         k += 1
-        # Exit condition: either hit max length 
-        # or find stop character. 
-        if (sampled_token_index == tokenizer2.word_index['<E>'] or k >= MAX_COM_WORDS): 
-            stop_condition = True 
+        # Exit condition: either hit max length
+        # or find stop character.
+        if (sampled_token_index == tokenizer2.word_index['<E>'] or k >= MAX_COM_WORDS):
+            stop_condition = True
 
         # Add the sampled token to the sequence
         target_seq[0,k] = sampled_token_index
