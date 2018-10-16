@@ -1,5 +1,4 @@
 #! encoding=utf-8
-print('running textclassifierHATTGRU.py')
 import numpy as np
 import pandas as pd
 import cPickle
@@ -28,6 +27,7 @@ from keras.engine.topology import Layer, InputSpec
 from keras import initializers
 import tensorflow as tf
 # set run environment
+print('training GRU model!')
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 config = tf.ConfigProto()
 config.gpu_options.allow_growth=True
@@ -71,7 +71,7 @@ with open (input_file,'r') as f:
         # preprocess
         comment = BeautifulSoup(m_comment)
         comment = clean_str(comment.get_text().encode('ascii','ignore'))
-        comment = "<S> " + comment + " <E>"
+        comment = " commentstart " + comment + " commentend "
         comments.append(comment)
 
         code = ''
@@ -104,10 +104,13 @@ print('Total %s unique tokens in code.' % (len(tokenizer.word_index)+1))
 num_encoder_tokens = len(tokenizer.word_index) + 1 # 默认为0
 
 # target to numbers
-all_texts = code_texts + comments
+all_texts = comments + code_texts
 print('Total %s comment and code' % len(all_texts))
 tokenizer2 = Tokenizer(num_words=MAX_ALL_WORDS)
 tokenizer2.fit_on_texts(all_texts)
+print('keys: ', tokenizer2.word_index.keys)
+print('commentstart: ', tokenizer2.word_index['commentstart'])
+print('commentend: ', tokenizer2.word_index['commentend'])
 print('Total %s unique tokens in comment and code.' % len(tokenizer2.word_index))
 
 com_data = np.zeros((len(comments), MAX_COM_WORDS), dtype='int32')
@@ -156,7 +159,6 @@ decoder_input_data2 = decoder_input[-nb_validation_samples:]
 decoder_target = np.expand_dims(decoder_target,-1)
 decoder_target_data = decoder_target[:-nb_validation_samples]
 decoder_target_data2 = decoder_target[-nb_validation_samples:]
-
 
 class AttLayer(Layer):
     def __init__(self, attention_dim):

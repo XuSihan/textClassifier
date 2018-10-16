@@ -70,7 +70,7 @@ with open (input_file,'r') as f:
         # preprocess
         comment = BeautifulSoup(m_comment)
         comment = clean_str(comment.get_text().encode('ascii','ignore'))
-        comment = "<S> " + comment + " <E>"
+        comment = " commentstart " + comment + " commentend "
         comments.append(comment)
 
         code = ''
@@ -103,10 +103,13 @@ print('Total %s unique tokens in code.' % (len(tokenizer.word_index)+1))
 num_encoder_tokens = len(tokenizer.word_index) + 1 # 默认为0
 
 # target to numbers
-all_texts = code_texts + comments
+all_texts = comments + code_texts
 print('Total %s comment and code' % len(all_texts))
 tokenizer2 = Tokenizer(num_words=MAX_ALL_WORDS)
 tokenizer2.fit_on_texts(all_texts)
+print('keys: ', tokenizer2.word_index.keys)
+print('commentstart: ', tokenizer2.word_index['commentstart'])
+print('commentend: ', tokenizer2.word_index['commentend'])
 print('Total %s unique tokens in comment and code.' % len(tokenizer2.word_index))
 
 com_data = np.zeros((len(comments), MAX_COM_WORDS), dtype='int32')
@@ -212,7 +215,7 @@ def decode_sequence(input_seq):
     # Generate empty target sequence of length 1. 
     target_seq = np.zeros((1,MAX_COM_WORDS)) 
     # Populate the first character of target sequence with the start character. 
-    target_seq[0, 0] = tokenizer2.word_index['<S>']
+    target_seq[0, 0] = tokenizer2.word_index['commentstart']
     # Sampling loop for a batch of sequences # (to simplify, here we assume a batch of size 1). 
     stop_condition = False 
     decoded_sentence = '' 
@@ -226,7 +229,7 @@ def decode_sequence(input_seq):
         k += 1
         # Exit condition: either hit max length 
         # or find stop character. 
-        if (sampled_token_index == tokenizer2.word_index['<E>'] or k >= MAX_COM_WORDS): 
+        if (sampled_token_index == tokenizer2.word_index['commentend'] or k >= MAX_COM_WORDS): 
             stop_condition = True 
 
         # Add the sampled token to the sequence
