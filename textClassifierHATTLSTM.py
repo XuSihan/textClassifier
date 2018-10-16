@@ -110,7 +110,7 @@ tokenizer2.fit_on_texts(all_texts)
 print('keys: ', tokenizer2.word_index.keys)
 print('commentstart: ', tokenizer2.word_index['commentstart'])
 print('commentend: ', tokenizer2.word_index['commentend'])
-print('Total %s unique tokens in comment and code.' % len(tokenizer2.word_index))
+print('Total %s unique tokens in comment and code.' % (len(tokenizer2.word_index)+1))
 
 com_data = np.zeros((len(comments), MAX_COM_WORDS), dtype='int32')
 for i, com in enumerate(comments):
@@ -205,6 +205,7 @@ decoder_outputs = decoder_dense(y)
 decoder_model = Model( [decoder_inputs] + decoder_states, decoder_outputs)
 
 index2token = {}
+index2token[0] = 'UNK'
 for token in tokenizer2.word_index:
     index2token[tokenizer2.word_index[token]] = token
 
@@ -224,12 +225,15 @@ def decode_sequence(input_seq):
         output_tokens = decoder_model.predict([target_seq] + states_value) 
         print('output_tokens',output_tokens)
         print('output_tokens.shape',output_tokens.shape)
+        print('output_tokens[0][0]',output_tokens[0][0])
         sampled_token_index = np.argmax(output_tokens[0, -1, :]) 
+        print('sampled_token_index: ', sampled_token_index)
         decoded_sentence += index2token[sampled_token_index] + ' '
         k += 1
         # Exit condition: either hit max length 
         # or find stop character. 
-        if (sampled_token_index == tokenizer2.word_index['commentend'] or k >= MAX_COM_WORDS): 
+        #if (sampled_token_index == tokenizer2.word_index['commentend'] or k >= MAX_COM_WORDS): 
+        if k >= 2: 
             stop_condition = True 
 
         # Add the sampled token to the sequence
