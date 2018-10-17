@@ -192,6 +192,9 @@ print("model fitting - Hierachical LSTM")
 #model.fit([encoder_input_data, decoder_input_data], decoder_target_data, batch_size=50, epochs=20, validation_split=0.2)
 model.fit([encoder_input_data, decoder_input_data], decoder_target_data, validation_data=([encoder_input_data2, decoder_input_data2], decoder_target_data2),batch_size=50, epochs=1, validation_split=0.2)
 
+# Save model
+model.save('lstm.h5')
+
 # inference
 encoder_model = Model(review_input, encoder_states) 
 
