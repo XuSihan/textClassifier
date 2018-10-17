@@ -181,7 +181,7 @@ encoder_states = [state_h, state_c]
 decoder_inputs = Input(shape=(None,))
 embedding_layer2 = Embedding(num_decoder_tokens, EMBEDDING_DIM)
 x = embedding_layer2(decoder_inputs)
-decoder_lstm = LSTM(200, return_sequences=True)
+decoder_lstm = LSTM(200, return_sequences=True, return_state=True)
 x = decoder_lstm(x, initial_state=encoder_states)
 decoder_dense = Dense(num_decoder_tokens, activation='softmax')
 decoder_outputs = decoder_dense(x)
@@ -197,12 +197,13 @@ encoder_model = Model(review_input, encoder_states)
 
 decoder_state_input_h = Input(shape=(200,)) 
 decoder_state_input_c = Input(shape=(200,)) 
-decoder_states = [decoder_state_input_h, decoder_state_input_c] 
+decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c] 
 
 y = embedding_layer2(decoder_inputs)
-y = decoder_lstm(y, initial_state=decoder_states)
-decoder_outputs = decoder_dense(y)
-decoder_model = Model( [decoder_inputs] + decoder_states, decoder_outputs)
+decoder_outputs, state_h, state_c = decoder_lstm(y, initial_state=decoder_states_inputs)
+decoder_states = [state_h, state_c]
+decoder_outputs = decoder_dense(decoder_outputs)
+decoder_model = Model( [decoder_inputs] + decoder_states_inputs, [decoder_outputs] + decoder_states)
 
 index2token = {}
 index2token[0] = 'UNK'
@@ -222,7 +223,7 @@ def decode_sequence(input_seq):
     decoded_sentence = '' 
     k = 0
     while not stop_condition: 
-        output_tokens = decoder_model.predict([target_seq] + states_value) 
+        output_tokens, h, c = decoder_model.predict([target_seq] + states_value) 
         print('output_tokens',output_tokens)
         print('output_tokens.shape',output_tokens.shape)
         print('output_tokens[0][0]',output_tokens[0][0])
@@ -237,13 +238,20 @@ def decode_sequence(input_seq):
             stop_condition = True 
 
         # Add the sampled token to the sequence
-        target_seq[0,k] = sampled_token_index
+        target_seq = np.zeros((1,MAX_COM_WORDS)) 
+        target_seq[0,0] = sampled_token_index
+        # Update states
+        states_value = [h, c]
     return decoded_sentence
 
 for i, input_seq in enumerate(encoder_input_data2):
     input_now = np.zeros((1,MAX_SENTS, MAX_SENT_LENGTH))
     input_now[0] = input_seq
-    print('Input: ', input_now[0])
+    print('Input: ')
+    for _, sents in enumerate(input_seq):
+        for _, token in enumerate(sents):
+            print index2token[token], ' ',
+        print ' ' 
     decoded_sentence = decode_sequence(input_now)
     print('Output: ', decoded_sentence)
 '''
