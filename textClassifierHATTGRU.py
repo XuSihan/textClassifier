@@ -241,7 +241,7 @@ model.fit([encoder_input_data, decoder_input_data], decoder_target_data, validat
 # inference
 encoder_model = Model(review_input, encoder_states)
 
-decoder_state_h = Input(shape=(100,))
+decoder_state_h = Input(shape=(200,))
 decoder_states = decoder_state_h
 
 y = embedding_layer2(decoder_inputs)
