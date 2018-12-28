@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 
 import sys
 import os
-
+from nltk.translate.bleu_score import sentence_bleu
 #os.environ['KERAS_BACKEND']='theano'
 from keras.preprocessing.text import Tokenizer, text_to_word_sequence, one_hot
 from keras.preprocessing.sequence import pad_sequences
@@ -35,8 +35,8 @@ KTF.set_session(sess)
 
 MAX_SENT_LENGTH = 100#每句最多单词数
 MAX_SENTS = 15#每个code fragments最多句数
-MAX_CODE_TOKENS = 20000#code fragments中处理的频率高的最大单词数
-MAX_ALL_WORDS = 30000
+MAX_CODE_TOKENS = 50000#code fragments中处理的频率高的最大单词数
+MAX_ALL_WORDS = 100000
 EMBEDDING_DIM = 100
 VALIDATION_SPLIT = 0.2
 MAX_COM_WORDS = 200#comment中最多的单词数
@@ -56,13 +56,14 @@ codes = []
 comments = []
 code_texts = []
 
-input_file = 'comment_datasets/test.json'
+input_file = 'comment_datasets/train.json'
 with open (input_file,'r') as f:
     print ('load data...')
     unicode_data = json.load(f) # read files
-    str_data = json.dumps(unicode_data) # convert into str
-    all_methods = yaml.safe_load(str_data) # safely load (remove 'u')
-    for method in all_methods:
+    #str_data = json.dumps(unicode_data) # convert into str
+    #all_methods = yaml.safe_load(str_data) # safely load (remove 'u')
+    #for method in all_methods:
+    for method in unicode_data:
         m_comment = method['comment']
         m_code = method['code']
         if len(m_comment) == 0 or len(m_code) == 0:
@@ -162,6 +163,7 @@ decoder_target_data2 = decoder_target[-nb_validation_samples:]
 embedding_layer = Embedding(num_encoder_tokens,
                             EMBEDDING_DIM,
                             input_length=MAX_SENT_LENGTH,
+                            mask_zero=True,
                             trainable=True)
 
 sentence_input = Input(shape=(MAX_SENT_LENGTH,), dtype='int32')
@@ -190,17 +192,17 @@ model = Model([review_input, decoder_inputs], decoder_outputs)
 model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy', metrics=['acc'])
 print("model fitting - Hierachical LSTM")
 #model.fit([encoder_input_data, decoder_input_data], decoder_target_data, batch_size=50, epochs=20, validation_split=0.2)
-model.fit([encoder_input_data, decoder_input_data], decoder_target_data, validation_data=([encoder_input_data2, decoder_input_data2], decoder_target_data2),batch_size=50, epochs=1, validation_split=0.2)
+model.fit([encoder_input_data, decoder_input_data], decoder_target_data, validation_data=([encoder_input_data2, decoder_input_data2], decoder_target_data2),batch_size=50, epochs=2, validation_split=0.2)
 
 # Save model
 model.save('lstm.h5')
 
 # inference
-encoder_model = Model(review_input, encoder_states) 
+encoder_model = Model(review_input, encoder_states)
 
-decoder_state_input_h = Input(shape=(200,)) 
-decoder_state_input_c = Input(shape=(200,)) 
-decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c] 
+decoder_state_input_h = Input(shape=(200,))
+decoder_state_input_c = Input(shape=(200,))
+decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
 
 y = embedding_layer2(decoder_inputs)
 decoder_outputs, state_h, state_c = decoder_lstm(y, initial_state=decoder_states_inputs)
@@ -214,49 +216,61 @@ for token in tokenizer2.word_index:
     index2token[tokenizer2.word_index[token]] = token
 
 
-def decode_sequence(input_seq): 
-    # Encode the input as state vectors. 
-    states_value = encoder_model.predict(input_seq) 
-    # Generate empty target sequence of length 1. 
-    target_seq = np.zeros((1,MAX_COM_WORDS)) 
-    # Populate the first character of target sequence with the start character. 
+def decode_sequence(input_seq):
+    # Encode the input as state vectors.
+    states_value = encoder_model.predict(input_seq)
+    # Generate empty target sequence of length 1.
+    target_seq = np.zeros((1,MAX_COM_WORDS))
+    # Populate the first character of target sequence with the start character.
     target_seq[0, 0] = tokenizer2.word_index['commentstart']
-    # Sampling loop for a batch of sequences # (to simplify, here we assume a batch of size 1). 
-    stop_condition = False 
-    decoded_sentence = '' 
+    # Sampling loop for a batch of sequences # (to simplify, here we assume a batch of size 1).
+    stop_condition = False
+    decoded_tokens = []
     k = 0
-    while not stop_condition: 
-        output_tokens, h, c = decoder_model.predict([target_seq] + states_value) 
-        print('output_tokens',output_tokens)
-        print('output_tokens.shape',output_tokens.shape)
-        print('output_tokens[0][0]',output_tokens[0][0])
-        sampled_token_index = np.argmax(output_tokens[0, -1, :]) 
-        print('sampled_token_index: ', sampled_token_index)
-        decoded_sentence += index2token[sampled_token_index] + ' '
+    while not stop_condition:
+        output_tokens, h, c = decoder_model.predict([target_seq] + states_value)
+        sampled_token_index = np.argmax(output_tokens[0, 0, :])
+        decoded_tokens.append(index2token[sampled_token_index])
         k += 1
-        # Exit condition: either hit max length 
-        # or find stop character. 
-        #if (sampled_token_index == tokenizer2.word_index['commentend'] or k >= MAX_COM_WORDS): 
-        if k >= 2: 
-            stop_condition = True 
+        # Exit condition: either hit max length
+        # or find stop character.
+        if (sampled_token_index == tokenizer2.word_index['commentend'] or k >= MAX_COM_WORDS):
+            stop_condition = True
 
         # Add the sampled token to the sequence
-        target_seq = np.zeros((1,MAX_COM_WORDS)) 
+        target_seq = np.zeros((1,MAX_COM_WORDS))
         target_seq[0,0] = sampled_token_index
         # Update states
         states_value = [h, c]
-    return decoded_sentence
+    return decoded_tokens
 
+score = 0.0
 for i, input_seq in enumerate(encoder_input_data2):
     input_now = np.zeros((1,MAX_SENTS, MAX_SENT_LENGTH))
     input_now[0] = input_seq
     print('Input: ')
     for _, sents in enumerate(input_seq):
+        if sents[0] == 0:
+            print ' '
+            break
         for _, token in enumerate(sents):
+            if token == 0:
+                break
             print index2token[token], ' ',
-        print ' ' 
-    decoded_sentence = decode_sequence(input_now)
-    print('Output: ', decoded_sentence)
+    decoded_tokens = decode_sequence(input_now)
+    print('Output: ', decoded_tokens)
+    # validate
+    expected_output = decoder_target_data2[i,:,-1]
+    expected_tokens = []
+    for t in expected_output:
+        expected_tokens.append(index2token[t])
+        if t == 'commentend':
+           break
+    print('Expected Output:', expected_tokens)
+    score += sentence_bleu([expected_tokens], decoded_tokens)
+average_bleu = score / len(encoder_input_data2)
+print('average_bleu: ', average_bleu)
+
 '''
 
 # building Hierachical Attention network
