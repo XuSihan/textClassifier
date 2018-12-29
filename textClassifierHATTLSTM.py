@@ -1,7 +1,7 @@
 #! encoding=utf-8
 import numpy as np
 import pandas as pd
-import cPickle
+import cPickle as pickle
 import yaml
 from collections import defaultdict
 import re
@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 import sys
 import os
 from nltk.translate.bleu_score import sentence_bleu
+from nltk import tokenize
 #os.environ['KERAS_BACKEND']='theano'
 from keras.preprocessing.text import Tokenizer, text_to_word_sequence, one_hot
 from keras.preprocessing.sequence import pad_sequences
@@ -50,85 +51,138 @@ def clean_str(string):
     string = re.sub(r"\"", "", string)
     return string.strip().lower()
 
-from nltk import tokenize
+def process_data(input_file):
+    '''
+    process the input file to feed into the model
+    input_file: input file in json format
+    return: data, com_data, tokenizer and tokenizer2
+    '''
+    prefix = './comment_datasets/'
+    base_input_name = os.path.basename(input_file)
+    tokenizer_path = os.path.join(prefix, os.path.splitext(base_input_name)[0] + '_tokenizer.pkl')
+    tokenizer2_path = os.path.join(prefix, os.path.splitext(base_input_name)[0] + '_tokenizer2.pkl')
+    data_path = os.path.join(prefix, os.path.splitext(base_input_name)[0] + '_model_in.npy')
+    com_data_path = os.path.join(prefix, os.path.splitext(base_input_name)[0] + '_model_out.npy')
 
-codes = []
-comments = []
-code_texts = []
+    tokenizer = None
+    tokenizer2 = None
+    data = None
+    com_data = None
 
-input_file = 'comment_datasets/train.json'
-with open (input_file,'r') as f:
-    print ('load data...')
-    unicode_data = json.load(f) # read files
-    #str_data = json.dumps(unicode_data) # convert into str
-    #all_methods = yaml.safe_load(str_data) # safely load (remove 'u')
-    #for method in all_methods:
-    for method in unicode_data:
-        m_comment = method['comment']
-        m_code = method['code']
-        if len(m_comment) == 0 or len(m_code) == 0:
-            continue
-        # preprocess
-        comment = BeautifulSoup(m_comment)
-        comment = clean_str(comment.get_text().encode('ascii','ignore'))
-        comment = " commentstart " + comment + " commentend "
-        comments.append(comment)
+    # if the 3 files exist, load them directly
+    if os.path.isfile(tokenizer2_path) and os.path.isfile(data_path) and os.path.isfile(com_data_path):
+        # load tokenizer2 if existed
+        with open(tokenizer_path, 'rb') as handle:
+            tokenizer = pickle.load(handle)
+        with open(tokenizer2_path, 'rb') as handle:
+            tokenizer2 = pickle.load(handle)
+        data = np.load(data_path)
+        com_data = np.load(com_data_path)
+        print('data shape: %s' % str(data.shape))
+        print('com_data shape: %s' % str(com_data.shape))
 
-        code = ''
-        sents = []
-        for sentence in m_code:
-            sentence = BeautifulSoup(sentence)
-            sentence = clean_str(sentence.get_text().encode('ascii','ignore'))
-            sents.append(sentence)
-            code = code + sentence + ' '
-        code_texts.append(code)
-        codes.append(sents)
-print('Total %s code fragments' % len(code_texts))
-# input to numbers
-tokenizer = Tokenizer(num_words=MAX_CODE_TOKENS)
-tokenizer.fit_on_texts(code_texts)
-# 没出现的就是0
-data = np.zeros((len(code_texts), MAX_SENTS, MAX_SENT_LENGTH), dtype='int32')
+    else:
+        codes = []
+        comments = []
+        code_texts = []
 
-for i, sentences in enumerate(codes):
-    for j, sent in enumerate(sentences):
-        if j< MAX_SENTS: #每个code fragments的前MAX_SENTS句话
-            #分词
-            wordTokens = text_to_word_sequence(sent)
-            k=0
+        with open (input_file,'r') as f:
+            print ('load data...')
+            unicode_data = json.load(f) # read files
+            #str_data = json.dumps(unicode_data) # convert into str
+            #all_methods = yaml.safe_load(str_data) # safely load (remove 'u')
+            #for method in all_methods:
+            for method in unicode_data:
+                m_comment = method['comment']
+                m_code = method['code']
+                if len(m_comment) == 0 or len(m_code) == 0:
+                    continue
+                # preprocess
+                comment = BeautifulSoup(m_comment)
+                comment = clean_str(comment.get_text().encode('ascii','ignore'))
+                comment = " commentstart " + comment + " commentend "
+                comments.append(comment)
+
+                code = ''
+                sents = []
+                for sentence in m_code:
+                    sentence = BeautifulSoup(sentence)
+                    sentence = clean_str(sentence.get_text().encode('ascii','ignore'))
+                    sents.append(sentence)
+                    code = code + sentence + ' '
+                code_texts.append(code)
+                codes.append(sents)
+        print('Total %s code fragments' % len(code_texts))
+        # input to numbers
+        tokenizer = Tokenizer(num_words=MAX_CODE_TOKENS)
+        tokenizer.fit_on_texts(code_texts)
+        # 没出现的就是0
+        data = np.zeros((len(code_texts), MAX_SENTS, MAX_SENT_LENGTH), dtype='int32')
+
+        for i, sentences in enumerate(codes):
+            for j, sent in enumerate(sentences):
+                if j< MAX_SENTS: #每个code fragments的前MAX_SENTS句话
+                    #分词
+                    wordTokens = text_to_word_sequence(sent)
+                    k=0
+                    for _, word in enumerate(wordTokens):
+                        if k<MAX_SENT_LENGTH and tokenizer.word_index[word]<MAX_CODE_TOKENS: #每句话的前MAX_SENT_LENGTH个单词
+                            data[i,j,k] = tokenizer.word_index[word]
+                            k=k+1
+        print('Total %s unique tokens in code.' % (len(tokenizer.word_index)+1))
+
+        # target to numbers
+        all_texts = comments + code_texts
+        print('Total %s comment and code' % len(all_texts))
+        tokenizer2 = Tokenizer(num_words=MAX_ALL_WORDS)
+        tokenizer2.fit_on_texts(all_texts)
+
+        # save tokenizer, tokenizer2 for future use
+        try:
+            with open(tokenizer_path, 'wb') as handle:
+                pickle.dump(tokenizer, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        except Exception as e:
+            print('save tokenizer2 failed: %s' % str(e))
+        try:
+            with open(tokenizer2_path, 'wb') as handle:
+                pickle.dump(tokenizer2, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        except Exception as e:
+            print('save tokenizer2 failed: %s' % str(e))
+
+        print('keys: ', tokenizer2.word_index.keys)
+        print('commentstart: ', tokenizer2.word_index['commentstart'])
+        print('commentend: ', tokenizer2.word_index['commentend'])
+        print('Total %s unique tokens in comment and code.' % (len(tokenizer2.word_index)+1))
+
+        com_data = np.zeros((len(comments), MAX_COM_WORDS), dtype='int32')
+        for i, com in enumerate(comments):
+            wordTokens = text_to_word_sequence(com)
+            j=0
             for _, word in enumerate(wordTokens):
-                if k<MAX_SENT_LENGTH and tokenizer.word_index[word]<MAX_CODE_TOKENS: #每句话的前MAX_SENT_LENGTH个单词
-                    data[i,j,k] = tokenizer.word_index[word]
-                    k=k+1
-print('Total %s unique tokens in code.' % (len(tokenizer.word_index)+1))
+                if j<MAX_COM_WORDS and tokenizer2.word_index[word]<MAX_ALL_WORDS:
+                    com_data[i,j] = tokenizer2.word_index[word]
+                    j=j+1
+
+        print('Shape of code tensor:', data.shape)
+        print('Shape of comment tensor:', com_data.shape)
+        #one_hot
+        #com_one_hot = to_categorical(com_data)
+
+        # save data and com_data for future use
+        try:
+            np.save(data_path, data)
+            np.save(com_data_path, com_data)
+        except Exception as e:
+            print('save data or com_data failed: %s' % str(e))
+
+    return data, com_data, tokenizer, tokenizer2
+
+# obtain data and tokenizers
+input_file = 'comment_datasets/train.json'
+data, com_data, tokenizer, tokenizer2 = process_data(input_file)
 num_encoder_tokens = len(tokenizer.word_index) + 1 # 默认为0
-
-# target to numbers
-all_texts = comments + code_texts
-print('Total %s comment and code' % len(all_texts))
-tokenizer2 = Tokenizer(num_words=MAX_ALL_WORDS)
-tokenizer2.fit_on_texts(all_texts)
-print('keys: ', tokenizer2.word_index.keys)
-print('commentstart: ', tokenizer2.word_index['commentstart'])
-print('commentend: ', tokenizer2.word_index['commentend'])
-print('Total %s unique tokens in comment and code.' % (len(tokenizer2.word_index)+1))
-
-com_data = np.zeros((len(comments), MAX_COM_WORDS), dtype='int32')
-for i, com in enumerate(comments):
-    wordTokens = text_to_word_sequence(com)
-    j=0
-    for _, word in enumerate(wordTokens):
-        if j<MAX_COM_WORDS and tokenizer2.word_index[word]<MAX_ALL_WORDS:
-            com_data[i,j] = tokenizer2.word_index[word]
-            j=j+1
 num_decoder_tokens = len(tokenizer2.word_index) + 1 #默认为0
-
-print('Shape of code tensor:', data.shape)
-print('Shape of comment tensor:', com_data.shape)
-#one_hot
-#com_one_hot = to_categorical(com_data)
-
-#shuffle
+# shuffle
 indices = np.arange(data.shape[0])
 np.random.shuffle(indices)
 data = data[indices]
@@ -192,7 +246,7 @@ model = Model([review_input, decoder_inputs], decoder_outputs)
 model.compile(optimizer='rmsprop', loss='sparse_categorical_crossentropy', metrics=['acc'])
 print("model fitting - Hierachical LSTM")
 #model.fit([encoder_input_data, decoder_input_data], decoder_target_data, batch_size=50, epochs=20, validation_split=0.2)
-model.fit([encoder_input_data, decoder_input_data], decoder_target_data, validation_data=([encoder_input_data2, decoder_input_data2], decoder_target_data2),batch_size=50, epochs=2, validation_split=0.2)
+model.fit([encoder_input_data, decoder_input_data], decoder_target_data, validation_data=([encoder_input_data2, decoder_input_data2], decoder_target_data2),batch_size=10, epochs=2, validation_split=0.2)
 
 # Save model
 model.save('lstm.h5')
